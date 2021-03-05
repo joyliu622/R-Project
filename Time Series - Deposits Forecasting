@@ -1,0 +1,194 @@
+#1. Check your working directory
+getwd()
+
+#2. Set your working directory to "ANLY 580/RScript". 
+setwd("/Users/yizhouliu/Documents/HU/ANLY 565 TUE/RScript")
+
+#3. Import data
+library(readxl)
+depodata <- read_excel("Final Data Set - ANLY 565.xlsx", col_types = c("date", "numeric", "numeric", "numeric","numeric"))
+
+#4. Create a time series object that contains all variables
+depots <- ts(depodata[,-1], start = c(2011,1), end = c(2020,3), freq = 4)
+class(depots)
+str(depots)
+
+#5. Create stand alone varaibles
+td <- depots[,2]
+sd <- depots[,3]
+cd <- depots[,4]
+
+##6. Based on the results of this model can you make any conclusions about the nature of the 
+#   relationship between the td, sd, and cd
+
+td_sdcd.lm <- lm(td ~ sd + cd)
+summary(td_sdcd.lm)
+
+#Based on the summary statistic of the regression function among td, sd and cd, 
+#we see that parameters for cd and sd are statistically significant. This means that 
+#there is indeed a linear relationship between the three varialbe. 
+#However, the ajdusted R^2 is 0.85. This suggests that more than 85% of variation 
+#in sd and cd cannot be explained by the variation in td. 
+
+sd_tdcd.lm <- lm(sd ~ td + cd)
+summary(sd_tdcd.lm)
+
+cd_tdsd.lm <- lm(cd ~ td + sd)
+summary(cd_tdsd.lm)
+
+#the model cd_tdsd.lm looks like a good fit.
+
+
+#7. Use Augmented Dickey Fuller method test all variables
+library(tseries)
+adf.test(td)
+#p-value is larger than 0.05. It is non-stationary.
+adf.test(sd)
+#p-value is larger than 0.05. It is non-stationary.
+adf.test(cd)
+#p-value is larger than 0.05. It is non-stationary.
+
+#8. Phillips-Ouliaris test
+po.test(cbind(td, sd, cd))
+#The P.O. tests for the null hypothesis that our variables are not cointegrated. 
+#As the p-value is above 0.05, the null hypothesis cannot be rejected. 
+#The three variables are not cointegrated
+
+
+
+#9. Creating the following new variables
+# "ttd - that represents quarterly percentage chagne in checking deposit
+# "ssd" - that represents quarterly percentage chagne in saving deposit
+# "ccd" - that represents quarterly percentage chagne in cd deposit
+
+ttd <- c(NaN, diff(td)/lag(td, -1)*100)
+ssd <- c(NaN, diff(sd)/lag(sd, -1)*100)
+ccd <- c(NaN, diff(cd)/lag(cd, -1)*100)
+head(ttd)
+head(ssd)
+head(ccd)
+
+
+#10. By using ts() and cbind() functions add "checkingchange", "savingchange" and "cdchange" variables 
+#    to the "newdepots" data set.
+newdepots <- (ts(cbind(ttd, ssd, ccd), start = c(2011,1), end = c(2020,3), freq = 4))
+
+#11. Use na.omit() function to get rid of the missing values in the "newdepots" data set. 
+#   Save the new data set as "newdepotscc".
+newdepotscc <- na.omit(newdepots)
+
+#12  Create 3 new variables: 
+# "newchecking" - takes on values of the "checkingchange" from the "newdepotscc"
+# "newsaving" - takes on values of the savingchange" from the "newdepotscc"
+# "newcd"- takes on values of the "cdchange" from the "newdepotscc"
+newtd <- newdepotscc[, 1]
+newsd <- newdepotscc[, 2]
+newcd <- newdepotscc[,3]
+
+#13. Use to Augmented Dickey-Fuller test to determine whether the 3 variables
+#   are statiomary or not. 
+adf.test(newtd)
+#the p-value is smaller than 0.05, so we have enough evidence to reject the null hypothesis.
+#"newchecking" doesn't contain unit root and it is stationary.
+adf.test(newsd)
+#the p-value is larger than 0.05 so we don't have enough evidence to reject the null hypothesis. 
+#"newsaving" is not stationary.
+adf.test(newcd)
+#the p-value is larger than 0.05 so we don't have enough evidence to reject the null hypothesis. 
+#"newcd" is not stationary.
+
+#14. Use lm() function to estimate the coeficients of a linear regression model between variables.
+new.td_sdcd.lm <- lm(newtd ~ newsd + newcd)
+summary(new.td_sdcd.lm)
+
+new.sd_tdcd.lm <- lm(newsd ~ newtd + newcd)
+summary(new.sd_tdcd.lm)
+
+new.cd_tdsd.lm <- lm(newcd ~ newtd + newsd)
+summary(new.cd_tdsd.lm)
+#this model fits the best
+
+
+#15. Create a variable called "new.cd_tdsd.lm" that represents the residual series obtained 
+#   from the "new.cd_tdsd.lm" regression
+new.cd_tdsd.lm.resid <- new.cd_tdsd.lm$residuals
+
+
+#16. Constract acf and pacf functions for "checking.saving.lm.resid".
+acf(new.cd_tdsd.lm.resid)
+pacf(new.cd_tdsd.lm.resid)
+#This model is not fit well. The acf and pacf plots both show there is autocorrelation.
+
+#17. Maybe vector autoregression model would prove a better fit. 
+#   Upload "vars" library that contains VAR() function
+library(vars)
+
+#18. Estimate a VAR model for the "newchecking" and "newsaving" variables.
+#   In this modelincludes 3 lags of each variable. 
+#   Save the estimates of the var model as "checking.saving.var"
+depots.var <- VAR(cbind(newtd, newsd, newcd), p = 3, type = "trend")
+coef(depots.var)
+
+#19. Use plot() and irf() functions to obtain and plot impulse response functions for each variable.
+#   IRF illustrates the behavior of a variable in response to one standard deviation shock 
+#   in its own value and in the value of the other variable.
+plot(irf(depots.var, response = "newtd"), boot=T, nsteps = 4)
+plot(irf(depots.var, response = "newsd"), boot=T, nsteps = 4)
+plot(irf(depots.var, response = "newcd"), boot=T, nsteps = 4)
+
+#20. Use resid() function to obtain the residuals from the newschecking equation of the "depots.var" model.
+#   Save this residual series as "var.td.resid".
+var.newtd.resid <- (resid(depots.var)[, 1])
+
+#Use resid() function to obtain the residuals from the newssaving equation of the "depots.var" model.
+#   Save this residual series as "var.nesd.resid".
+var.newsd.resid <- (resid(depots.var)[, 2])
+#Use resid() function to obtain the residuals from the newssaving equation of the "depots.var" model.
+#   Save this residual series as "var.newcd.resid".
+var.newcd.resid <- (resid(depots.var)[, 3])
+
+#21. Plot acf and pacf functions for the 'var.td.resid". 
+#   Does "depots.var" model provide a good fit to explain growth rate of checking deposit?
+acf(var.newtd.resid)
+pacf(var.newtd.resid)
+#Plot acf and pacf functions for the 'var.newsd.resid". 
+#   Does "depots.var" model provide a good fit to explain growth rate of saving deposit?
+acf(var.newsd.resid)
+pacf(var.newsd.resid)
+#Plot acf and pacf functions for the 'var.newcd.resid". 
+#   Does "depots.var" model provide a good fit to explain growth rate of cd deposit?
+acf(var.newcd.resid)
+pacf(var.newcd.resid)
+
+#22. Use "depots.var" model and predict() function to forecast growth rate of checking deposit, saving deposit and cd deposit over the upcoming year. 
+VAR.pred <- predict(depots.var, n.ahead = 4)
+VAR.pred
+
+#23. Use ts() function and VAR.pred forecast to create a new variable "newtd.pred".
+#   It should contain the forcasted values of the growth rate of checking deposit over the next 4 quarters.
+newtd.pred <- ts(VAR.pred$fcst$newtd[, 1],start = c(2020, 4), frequency = 4)
+newtd.pred
+
+#Use ts() function and VAR.pred forecast to create a new variable "newsaving.pred".
+#   It should contain the forcasted values of the growth rate of saving deposit over the next 4 quarters.
+newsd.pred <- ts(VAR.pred$fcst$newsd[, 1],start = c(2020, 4), frequency = 4)
+newsd.pred
+
+#Use ts() function and VAR.pred forecast to create a new variable "newcd.pred".
+#   It should contain the forcasted values of the growth rate of cd deposit over the next 4 quarters.
+newcd.pred <- ts(VAR.pred$fcst$newcd[, 1],start = c(2020, 4), frequency = 4)
+newcd.pred
+
+#24. Plot the times series graph of the past growth rates of checking deposit alongside 
+#   its future forecasted values. Do you expect the checking deposit to grow over the next 4 quarters?
+ts.plot(cbind(newtd, newtd.pred), lty = 1:2, col = c("blue", "red"))
+#Plot the times series graph of the past growth rates of saving deposit alongside 
+#   its future forecasted values. Do you expect the saving deposit to grow over the next 4 quarters?
+ts.plot(cbind(newsd, newsd.pred), lty = 1:2, col = c("blue", "red"))
+#Plot the times series graph of the past growth rates of cd deposit alongside 
+#   its future forecasted values. Do you expect the cd deposit to grow over the next 4 quarters?
+ts.plot(cbind(newcd, newcd.pred), lty = 1:2, col = c("blue", "red"))
+
+
+
+
